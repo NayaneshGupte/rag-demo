@@ -45,6 +45,8 @@ Copy `.env.example` to `.env` and fill in your credentials:
 - `TELEGRAM_BOT_TOKEN`: Telegram bot token
 - `PINECONE_INDEX_NAME`: Your Pinecone index name
 
+- Note : You may have to create .env file.
+
 ### 3. Setup Gmail
 Place your `credentials.json` file (from Google Cloud Console) in the project root.
 
