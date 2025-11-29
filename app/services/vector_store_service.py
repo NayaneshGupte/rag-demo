@@ -1,243 +1,200 @@
-import time
+"""
+Vector store service using pluggable vector database providers.
+Provides unified interface to all vector database operations.
+"""
 import logging
-from typing import List
-import google.generativeai as genai
-from langchain_core.embeddings import Embeddings
-from pinecone import Pinecone, ServerlessSpec
+from typing import List, Dict, Optional
 from app.config import Config
+from app.services.vector_db_providers.factory import VectorDBFactory
 
 logger = logging.getLogger(__name__)
 
-class GoogleGenAIEmbeddings(Embeddings):
-    """Custom wrapper for Google Generative AI Embeddings to be compatible with LangChain."""
-    
-    def __init__(self, api_key, model_name="models/embedding-001"):
-        genai.configure(api_key=api_key)
-        self.model_name = model_name
-        
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed a list of documents."""
-        embeddings = []
-        for text in texts:
-            # Gemini embedding API handles one text at a time or batch
-            # Doing one by one for simplicity and error handling
-            try:
-                result = genai.embed_content(
-                    model=self.model_name,
-                    content=text,
-                    task_type="retrieval_document"
-                )
-                embeddings.append(result['embedding'])
-                # Rate limit: Sleep after embedding
-                time.sleep(1)
-            except Exception as e:
-                logger.error(f"Error embedding document: {e}")
-                # Return zero vector or handle appropriately
-                embeddings.append([0.0] * 768) 
-        return embeddings
-
-    def embed_query(self, text: str) -> List[float]:
-        """Embed a query."""
-        try:
-            result = genai.embed_content(
-                model=self.model_name,
-                content=text,
-                task_type="retrieval_query"
-            )
-            # Rate limit: Sleep after embedding
-            time.sleep(1)
-            return result['embedding']
-        except Exception as e:
-            logger.error(f"Error embedding query: {e}")
-            return [0.0] * 768
 
 class VectorStoreService:
-    """Service for managing vector store operations."""
+    """Service for vector store operations using pluggable providers."""
     
-    def __init__(self):
-        self.embeddings = self._initialize_embeddings()
-        self.pc_client = self._initialize_pinecone_client()
-    
-    def _initialize_embeddings(self):
-        """Initialize Google Gemini Embeddings."""
-        if not Config.GOOGLE_API_KEY:
-            raise ValueError("GOOGLE_API_KEY is not set in configuration.")
+    def __init__(self, vector_db_type: Optional[str] = None, 
+                 fallback_providers: Optional[List[str]] = None):
+        """
+        Initialize vector store service.
         
-        logger.info("Initializing Google Gemini embeddings (Direct SDK)")
-        return GoogleGenAIEmbeddings(
-            api_key=Config.GOOGLE_API_KEY,
-            model_name=Config.EMBEDDING_MODEL
-        )
-    
-    def _initialize_pinecone_client(self):
-        """Initialize Pinecone client."""
-        if not Config.PINECONE_API_KEY:
-            raise ValueError("PINECONE_API_KEY is not set in configuration.")
+        Args:
+            vector_db_type: Primary vector DB type (defaults to Config.VECTOR_DB_TYPE)
+            fallback_providers: List of fallback providers (defaults to Config.VECTOR_DB_FALLBACK_PROVIDERS)
+        """
+        db_type = vector_db_type or Config.VECTOR_DB_TYPE
+        fallbacks = fallback_providers or Config.VECTOR_DB_FALLBACK_PROVIDERS
         
-        logger.info("Initializing Pinecone client")
-        return Pinecone(api_key=Config.PINECONE_API_KEY)
-    
-    def get_or_create_index(self, index_name=None):
-        """Get existing index or create new one."""
-        if index_name is None:
-            index_name = Config.PINECONE_INDEX_NAME
-        
-        existing_indexes = [index.name for index in self.pc_client.list_indexes()]
-        
-        if index_name not in existing_indexes:
-            logger.info(f"Creating new Pinecone index: {index_name}")
-            self.pc_client.create_index(
-                name=index_name,
-                dimension=Config.PINECONE_DIMENSION,
-                metric=Config.PINECONE_METRIC,
-                spec=ServerlessSpec(
-                    cloud=Config.PINECONE_CLOUD,
-                    region=Config.PINECONE_REGION
-                )
+        try:
+            self.factory = VectorDBFactory(
+                primary_provider=db_type,
+                fallback_providers=fallbacks
             )
+            logger.info(f"VectorStoreService initialized with {db_type} provider")
+        except Exception as e:
+            logger.error(f"Error initializing VectorStoreService: {e}")
+            raise
+    
+    def get_provider_name(self) -> str:
+        """
+        Get name of current vector DB provider.
+        
+        Returns:
+            str: Provider name
+        """
+        provider = self.factory.get_current_provider()
+        if provider:
+            return provider.get_provider_name()
+        return "unknown"
+    
+    def get_provider_status(self) -> Dict:
+        """
+        Get status of vector DB providers.
+        
+        Returns:
+            Dict: Status information
+        """
+        return self.factory.get_provider_status()
+    
+    def get_or_create_index(self, index_name: Optional[str] = None, 
+                           dimension: Optional[int] = None) -> bool:
+        """
+        Get or create vector index.
+        
+        Args:
+            index_name: Name of index (uses default if None)
+            dimension: Dimension for embeddings
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not index_name:
+            index_name = Config.PINECONE_INDEX_NAME
+        
+        return self.factory.get_or_create_index(index_name, dimension)
+    
+    def add_documents(self, documents: List[Dict], 
+                     index_name: Optional[str] = None) -> int:
+        """
+        Add documents to vector store.
+        
+        Args:
+            documents: List of documents to add
+            index_name: Index name (uses default if None)
+            
+        Returns:
+            int: Number of documents added
+        """
+        if not index_name:
+            index_name = Config.PINECONE_INDEX_NAME
+        
+        response = self.factory.add_documents(documents, index_name)
+        if response.success:
+            return response.data or 0
         else:
-            logger.info(f"Using existing Pinecone index: {index_name}")
+            logger.error(f"Failed to add documents: {response.error}")
+            return 0
+    
+    def similarity_search(self, query: str, k: int = 3, 
+                         index_name: Optional[str] = None) -> List[Dict]:
+        """
+        Search for similar documents.
         
-        return self.pc_client.Index(index_name)
-
-    def get_stats(self, index_name=None):
-        """Get index statistics."""
-        if index_name is None:
+        Args:
+            query: Query text
+            k: Number of results
+            index_name: Index name (uses default if None)
+            
+        Returns:
+            List[Dict]: List of similar documents
+        """
+        if not index_name:
             index_name = Config.PINECONE_INDEX_NAME
         
-        try:
-            index = self.pc_client.Index(index_name)
-            stats = index.describe_index_stats()
-            return stats
-        except Exception as e:
-            logger.error(f"Error getting index stats: {e}")
+        response = self.factory.similarity_search(query, k, index_name)
+        if response.success:
+            return response.data or []
+        else:
+            logger.error(f"Search failed: {response.error}")
+            return []
+    
+    def get_stats(self, index_name: Optional[str] = None) -> Dict:
+        """
+        Get vector store index statistics.
+        
+        Args:
+            index_name: Index name (uses default if None)
+            
+        Returns:
+            Dict: Index statistics
+        """
+        if not index_name:
+            index_name = Config.PINECONE_INDEX_NAME
+        
+        response = self.factory.get_index_stats(index_name)
+        if response.success:
+            return response.data or {}
+        else:
+            logger.error(f"Failed to get stats: {response.error}")
             return {}
-
-    def list_documents(self, limit=3, pagination_token=None, index_name=None):
-        """List documents from the vector store with pagination."""
-        if index_name is None:
+    
+    def list_documents(self, index_name: Optional[str] = None, 
+                      limit: int = 3, 
+                      pagination_token: Optional[str] = None) -> Dict:
+        """
+        List documents from vector store.
+        
+        Args:
+            index_name: Index name (uses default if None)
+            limit: Maximum documents to return
+            pagination_token: Pagination token
+            
+        Returns:
+            Dict: Documents and pagination info
+        """
+        if not index_name:
             index_name = Config.PINECONE_INDEX_NAME
-            
-        try:
-            index = self.pc_client.Index(index_name)
-            
-            # List IDs
-            list_args = {'limit': limit}
-            if pagination_token:
-                list_args['pagination_token'] = pagination_token
-                
-            # Note: list returns a generator or response object depending on version
-            # Assuming standard list behavior for v8+
-            results = index.list(**list_args)
-            
-            ids = []
-            next_token = None
-            
-            # Handle different response types (iterator vs object)
-            # For most recent SDKs, it yields batches of IDs or is an iterator
-            # We'll try to consume one batch
-            try:
-                for batch in results:
-                    ids.extend(batch)
-                    break # Just take the first batch if it's an iterator of batches
-            except TypeError:
-                # If it's not iterable like that, maybe it's a response object
-                if hasattr(results, 'vectors'):
-                    ids = [v.id for v in results.vectors]
-                if hasattr(results, 'pagination'):
-                    next_token = results.pagination.next
-            
-            # If we got IDs, fetch their metadata
-            documents = []
-            if ids:
-                fetch_response = index.fetch(ids)
-                for vector_id, vector_data in fetch_response.vectors.items():
-                    metadata = vector_data.metadata or {}
-                    text = metadata.get('text', '')
-                    documents.append({
-                        'id': vector_id,
-                        'text': text,
-                        'metadata': metadata
-                    })
-            
-            # Pinecone list iterator handles pagination internally usually, 
-            # but for stateless API we might need the token. 
-            # Re-checking SDK usage: list() returns an iterator of IDs.
-            # To implement stateless pagination with list() is tricky as it's designed for iteration.
-            # FALLBACK: For this demo, we will use a query with a generic vector if list() is complex to paginate statelessly,
-            # BUT list() is the correct way for "browsing".
-            # Let's assume we iterate and return.
-            
+        
+        response = self.factory.list_documents(index_name, limit, pagination_token)
+        if response.success:
             return {
-                'documents': documents,
-                'next_token': next_token # This might be None if we consumed the iterator
+                'documents': response.data or [],
+                'next_token': response.metadata.get('next_token') if response.metadata else None
             }
-            
-        except Exception as e:
-            logger.error(f"Error listing documents: {e}")
+        else:
+            logger.error(f"Failed to list documents: {response.error}")
             return {'documents': [], 'next_token': None}
-
-    def get_vector_store(self, index_name=None):
-        """Get vector store with direct Pinecone SDK v8 compatibility."""
-        if index_name is None:
+    
+    def get_vector_store(self, index_name: Optional[str] = None):
+        """
+        Get vector store wrapper for direct provider access.
+        
+        Args:
+            index_name: Index name (uses default if None)
+            
+        Returns:
+            SimplifiedVectorStore: Simplified interface to provider
+        """
+        if not index_name:
             index_name = Config.PINECONE_INDEX_NAME
         
-        # Ensure index exists
-        self.get_or_create_index(index_name)
+        provider = self.factory.get_current_provider()
         
-        # Return a simple wrapper that works with Pinecone v8
-        class SimplePineconeStore:
-            def __init__(self, pc_client, index_name, embeddings):
-                self.pc = pc_client
+        class SimplifiedVectorStore:
+            """Simplified vector store wrapper for compatibility."""
+            
+            def __init__(self, factory, index_name):
+                self.factory = factory
                 self.index_name = index_name
-                self.embeddings = embeddings
-                self.index = self.pc.Index(index_name)
             
-            def similarity_search(self, query, k=3):
+            def similarity_search(self, query: str, k: int = 3) -> List:
                 """Search for similar documents."""
-                # Generate query embedding
-                query_embedding = self.embeddings.embed_query(query)
-                
-                # Query Pinecone
-                results = self.index.query(
-                    vector=query_embedding,
-                    top_k=k,
-                    include_metadata=True
-                )
-                
-                # Convert to LangChain Document format
-                from langchain_core.documents import Document
-                docs = []
-                for match in results.get('matches', []):
-                    metadata = match.get('metadata', {})
-                    text = metadata.get('text', '')
-                    docs.append(Document(page_content=text, metadata=metadata))
-                
-                return docs
+                response = self.factory.similarity_search(query, k, self.index_name)
+                return response.data or [] if response.success else []
             
-            def add_documents(self, documents):
-                """Add documents to the vector store."""
-                vectors = []
-                for i, doc in enumerate(documents):
-                    embedding = self.embeddings.embed_documents([doc.page_content])[0]
-                    
-                    # Check if embedding is valid (not all zeros)
-                    if all(v == 0.0 for v in embedding):
-                        logger.warning(f"Skipping document {i} due to zero-vector embedding (possible API error or empty content)")
-                        continue
-                        
-                    vectors.append({
-                        'id': f'doc_{i}_{hash(doc.page_content)}',
-                        'values': embedding,
-                        'metadata': {'text': doc.page_content, **doc.metadata}
-                    })
-                
-                # Upsert in batches
-                batch_size = 100
-                for i in range(0, len(vectors), batch_size):
-                    batch = vectors[i:i+batch_size]
-                    self.index.upsert(vectors=batch)
-                
-                return len(vectors)
+            def add_documents(self, documents: List) -> int:
+                """Add documents to store."""
+                response = self.factory.add_documents(documents, self.index_name)
+                return response.data or 0 if response.success else 0
         
-        return SimplePineconeStore(self.pc_client, index_name, self.embeddings)
+        return SimplifiedVectorStore(self.factory, index_name)

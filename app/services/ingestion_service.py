@@ -1,5 +1,6 @@
 """
 Telegram ingestion service for processing PDF uploads.
+Uses pluggable vector database providers for document ingestion.
 """
 import os
 import logging
@@ -14,14 +15,29 @@ from app.services.vector_store_service import VectorStoreService
 logger = logging.getLogger(__name__)
 
 class IngestionService:
-    """Service for ingesting documents via Telegram."""
+    """Service for ingesting documents via Telegram.
     
-    def __init__(self):
-        self.vector_store_service = VectorStoreService()
+    Uses pluggable vector database providers configured via environment variables.
+    Same database is used for both ingestion and retrieval to ensure consistency.
+    """
+    
+    def __init__(self, vector_db_type: str = None, fallback_providers: list = None):
+        """
+        Initialize ingestion service.
+        
+        Args:
+            vector_db_type: Vector DB type (defaults to Config.VECTOR_DB_TYPE)
+            fallback_providers: Fallback vector DB providers
+        """
+        self.vector_store_service = VectorStoreService(vector_db_type, fallback_providers)
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=Config.CHUNK_SIZE,
             chunk_overlap=Config.CHUNK_OVERLAP
         )
+        
+        # Log which vector DB is being used
+        provider_name = self.vector_store_service.get_provider_name()
+        logger.info(f"IngestionService initialized with vector DB: {provider_name}")
     
     def process_pdf(self, file_path, file_name):
         """Process a PDF file: load, split, and upsert to vector store."""

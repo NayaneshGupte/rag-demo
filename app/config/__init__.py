@@ -52,6 +52,14 @@ class Config:
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1024"))
     
+    # Vector Database Provider Settings
+    VECTOR_DB_TYPE = os.getenv("VECTOR_DB_TYPE", "pinecone").lower()
+    VECTOR_DB_FALLBACK_PROVIDERS = [
+        provider.strip().lower()
+        for provider in os.getenv("VECTOR_DB_FALLBACK_PROVIDERS", "").split(",")
+        if provider.strip()
+    ]
+    
     # Logging
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     LOG_FILE = os.getenv("LOG_FILE", "logs/app.log")
