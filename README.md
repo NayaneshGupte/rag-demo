@@ -168,7 +168,10 @@ charts.js    → /api/metrics/email-volume → Database
 
 https://github.com/user-attachments/assets/97c3da8f-53a3-40ea-b103-be73e20b46c4
 
-https://github.com/user-attachments/assets/c42d6a63-6e20-4cfa-af7b-88b67e21cbc9
+
+https://github.com/user-attachments/assets/be54516a-fe79-4b1a-bfe4-4f97a222ad29
+
+
 
 ## 🤝 Contributing
 
