@@ -1,0 +1,309 @@
+# Docker Compose for Kafka and Zookeeper Local Development
+# This setup creates a local Kafka cluster with 3 brokers and 3 Zookeeper nodes
+
+version: '3.8'
+
+services:
+  # ============================================================
+  # ZOOKEEPER ENSEMBLE (3 nodes for quorum)
+  # ============================================================
+  
+  zookeeper-1:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper-1
+    container_name: zookeeper-1
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 10
+      ZOOKEEPER_SYNC_LIMIT: 5
+      ZOOKEEPER_SERVERS: zookeeper-1:2888:3888;zookeeper-2:2888:3888;zookeeper-3:2888:3888
+    volumes:
+      - zookeeper-1-data:/var/lib/zookeeper/data
+      - zookeeper-1-logs:/var/lib/zookeeper/log
+    networks:
+      - kafka-network
+
+  zookeeper-2:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper-2
+    container_name: zookeeper-2
+    ports:
+      - "2182:2181"
+    environment:
+      ZOOKEEPER_SERVER_ID: 2
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 10
+      ZOOKEEPER_SYNC_LIMIT: 5
+      ZOOKEEPER_SERVERS: zookeeper-1:2888:3888;zookeeper-2:2888:3888;zookeeper-3:2888:3888
+    volumes:
+      - zookeeper-2-data:/var/lib/zookeeper/data
+      - zookeeper-2-logs:/var/lib/zookeeper/log
+    networks:
+      - kafka-network
+
+  zookeeper-3:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper-3
+    container_name: zookeeper-3
+    ports:
+      - "2183:2181"
+    environment:
+      ZOOKEEPER_SERVER_ID: 3
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 10
+      ZOOKEEPER_SYNC_LIMIT: 5
+      ZOOKEEPER_SERVERS: zookeeper-1:2888:3888;zookeeper-2:2888:3888;zookeeper-3:2888:3888
+    volumes:
+      - zookeeper-3-data:/var/lib/zookeeper/data
+      - zookeeper-3-logs:/var/lib/zookeeper/log
+    networks:
+      - kafka-network
+
+  # ============================================================
+  # KAFKA BROKER CLUSTER (3 brokers for high availability)
+  # ============================================================
+
+  kafka-broker-1:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka-broker-1
+    container_name: kafka-broker-1
+    depends_on:
+      - zookeeper-1
+      - zookeeper-2
+      - zookeeper-3
+    ports:
+      - "9092:9092"
+      - "19092:19092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper-1:2181,zookeeper-2:2181,zookeeper-3:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-broker-1:9092,PLAINTEXT_HOST://localhost:19092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 536870912
+      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+    volumes:
+      - kafka-broker-1-data:/var/lib/kafka/data
+    networks:
+      - kafka-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka-broker-2:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka-broker-2
+    container_name: kafka-broker-2
+    depends_on:
+      - zookeeper-1
+      - zookeeper-2
+      - zookeeper-3
+    ports:
+      - "9093:9093"
+      - "19093:19093"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper-1:2181,zookeeper-2:2181,zookeeper-3:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-broker-2:9093,PLAINTEXT_HOST://localhost:19093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 536870912
+      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+    volumes:
+      - kafka-broker-2-data:/var/lib/kafka/data
+    networks:
+      - kafka-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9093"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka-broker-3:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka-broker-3
+    container_name: kafka-broker-3
+    depends_on:
+      - zookeeper-1
+      - zookeeper-2
+      - zookeeper-3
+    ports:
+      - "9094:9094"
+      - "19094:19094"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper-1:2181,zookeeper-2:2181,zookeeper-3:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-broker-3:9094,PLAINTEXT_HOST://localhost:19094
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 536870912
+      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+    volumes:
+      - kafka-broker-3-data:/var/lib/kafka/data
+    networks:
+      - kafka-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9094"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================
+  # KAFKA MANAGEMENT UI (kafdrop)
+  # ============================================================
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: kafdrop
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: 'kafka-broker-1:9092,kafka-broker-2:9093,kafka-broker-3:9094'
+      JVM_OPTS: '-Xms32M -Xmx64M'
+      SERVER_SERVLET_CONTEXTPATH: '/'
+    networks:
+      - kafka-network
+
+  # ============================================================
+  # TOPIC INITIALIZATION CONTAINER
+  # ============================================================
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-init
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+    networks:
+      - kafka-network
+    command: >
+      bash -c "
+        echo 'Waiting for Kafka brokers to be ready...'
+        cub kafka-ready -b kafka-broker-1:9092 3 60
+        
+        echo 'Creating topics...'
+        
+        kafka-topics --create --if-not-exists \
+          --bootstrap-server kafka-broker-1:9092 \
+          --topic emails.incoming \
+          --partitions 12 \
+          --replication-factor 3 \
+          --config retention.ms=604800000 \
+          --config min.insync.replicas=2
+        
+        kafka-topics --create --if-not-exists \
+          --bootstrap-server kafka-broker-1:9092 \
+          --topic emails.classified \
+          --partitions 12 \
+          --replication-factor 3 \
+          --config retention.ms=604800000 \
+          --config min.insync.replicas=2
+        
+        kafka-topics --create --if-not-exists \
+          --bootstrap-server kafka-broker-1:9092 \
+          --topic emails.response-ready \
+          --partitions 6 \
+          --replication-factor 3 \
+          --config retention.ms=604800000 \
+          --config min.insync.replicas=2
+        
+        kafka-topics --create --if-not-exists \
+          --bootstrap-server kafka-broker-1:9092 \
+          --topic documents.to-ingest \
+          --partitions 4 \
+          --replication-factor 3 \
+          --config retention.ms=259200000 \
+          --config min.insync.replicas=2
+        
+        kafka-topics --create --if-not-exists \
+          --bootstrap-server kafka-broker-1:9092 \
+          --topic dlq.failed-events \
+          --partitions 2 \
+          --replication-factor 3 \
+          --config retention.ms=2592000000 \
+          --config min.insync.replicas=2
+        
+        kafka-topics --create --if-not-exists \
+          --bootstrap-server kafka-broker-1:9092 \
+          --topic events.email-sent \
+          --partitions 4 \
+          --replication-factor 3 \
+          --config retention.ms=7776000000 \
+          --config min.insync.replicas=2
+        
+        echo 'Topics created successfully!'
+        kafka-topics --list --bootstrap-server kafka-broker-1:9092
+      "
+
+  # ============================================================
+  # REDIS (for caching embeddings and rate limiting)
+  # ============================================================
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - kafka-network
+    command: redis-server --appendonly yes
+
+# ============================================================
+# VOLUMES (persist data across restarts)
+# ============================================================
+
+volumes:
+  zookeeper-1-data:
+  zookeeper-1-logs:
+  zookeeper-2-data:
+  zookeeper-2-logs:
+  zookeeper-3-data:
+  zookeeper-3-logs:
+  kafka-broker-1-data:
+  kafka-broker-2-data:
+  kafka-broker-3-data:
+  redis-data:
+
+# ============================================================
+# NETWORKS
+# ============================================================
+
+networks:
+  kafka-network:
+    driver: bridge
