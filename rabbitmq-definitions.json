@@ -1,0 +1,174 @@
+# RabbitMQ queue and exchange definitions
+# Import this via Management UI or use rabbitmqadmin CLI
+
+{
+    "rabbit_version": "3.13.0",
+    "users": [
+        {
+            "name": "admin",
+            "password_hash": "admin123",
+            "hashing_algorithm": "rabbit_password_hashing_sha256",
+            "tags": "administrator"
+        },
+        {
+            "name": "rag_app",
+            "password_hash": "rag123",
+            "hashing_algorithm": "rabbit_password_hashing_sha256",
+            "tags": ""
+        }
+    ],
+    "vhosts": [
+        {
+            "name": "/"
+        }
+    ],
+    "permissions": [
+        {
+            "user": "admin",
+            "vhost": "/",
+            "configure": ".*",
+            "write": ".*",
+            "read": ".*"
+        },
+        {
+            "user": "rag_app",
+            "vhost": "/",
+            "configure": "",
+            "write": ".*",
+            "read": ".*"
+        }
+    ],
+    "exchanges": [
+        {
+            "name": "email_exchange",
+            "vhost": "/",
+            "type": "direct",
+            "durable": true,
+            "auto_delete": false,
+            "internal": false,
+            "arguments": {}
+        },
+        {
+            "name": "document_exchange",
+            "vhost": "/",
+            "type": "direct",
+            "durable": true,
+            "auto_delete": false,
+            "internal": false,
+            "arguments": {}
+        },
+        {
+            "name": "dead_letter_exchange",
+            "vhost": "/",
+            "type": "direct",
+            "durable": true,
+            "auto_delete": false,
+            "internal": false,
+            "arguments": {}
+        }
+    ],
+    "queues": [
+        {
+            "name": "emails.to_classify",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {
+                "x-max-priority": 10,
+                "x-message-ttl": 3600000,
+                "x-dead-letter-exchange": "dead_letter_exchange",
+                "x-dead-letter-routing-key": "failed_emails"
+            }
+        },
+        {
+            "name": "emails.to_respond",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {
+                "x-message-ttl": 7200000,
+                "x-dead-letter-exchange": "dead_letter_exchange",
+                "x-dead-letter-routing-key": "failed_emails"
+            }
+        },
+        {
+            "name": "emails.to_send",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {
+                "x-message-ttl": 3600000,
+                "x-dead-letter-exchange": "dead_letter_exchange",
+                "x-dead-letter-routing-key": "failed_emails"
+            }
+        },
+        {
+            "name": "documents.to_ingest",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {
+                "x-message-ttl": 1800000,
+                "x-dead-letter-exchange": "dead_letter_exchange",
+                "x-dead-letter-routing-key": "failed_documents"
+            }
+        },
+        {
+            "name": "dead_letter_queue",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {}
+        }
+    ],
+    "bindings": [
+        {
+            "source": "email_exchange",
+            "vhost": "/",
+            "destination": "emails.to_classify",
+            "destination_type": "queue",
+            "routing_key": "classify",
+            "arguments": {}
+        },
+        {
+            "source": "email_exchange",
+            "vhost": "/",
+            "destination": "emails.to_respond",
+            "destination_type": "queue",
+            "routing_key": "respond",
+            "arguments": {}
+        },
+        {
+            "source": "email_exchange",
+            "vhost": "/",
+            "destination": "emails.to_send",
+            "destination_type": "queue",
+            "routing_key": "send",
+            "arguments": {}
+        },
+        {
+            "source": "document_exchange",
+            "vhost": "/",
+            "destination": "documents.to_ingest",
+            "destination_type": "queue",
+            "routing_key": "ingest",
+            "arguments": {}
+        },
+        {
+            "source": "dead_letter_exchange",
+            "vhost": "/",
+            "destination": "dead_letter_queue",
+            "destination_type": "queue",
+            "routing_key": "failed_emails",
+            "arguments": {}
+        },
+        {
+            "source": "dead_letter_exchange",
+            "vhost": "/",
+            "destination": "dead_letter_queue",
+            "destination_type": "queue",
+            "routing_key": "failed_documents",
+            "arguments": {}
+        }
+    ]
+}
